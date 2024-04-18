@@ -1,0 +1,10 @@
+<launch>
+
+  <arg name="gui" default="false" />
+  <env name="DISPLAY" value="" unless="$(arg gui)" />
+
+  <test test-name="test_baxter"
+        name="test_baxter" pkg="jsk_arc2017_baxter"
+        type="test-baxter.l" time-limit="100" />
+
+</launch>
