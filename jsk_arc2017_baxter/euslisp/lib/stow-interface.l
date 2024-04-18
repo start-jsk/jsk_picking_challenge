@@ -57,13 +57,13 @@
       (send self :set-objects-param arm :tote :object-type :all)
       can-start))
   (:calib-prismatic-joint (arm &key (timeout 10))
-    (send *ri* :start-prismatic-calib arm)
+    (send (send self :get-robot-interface) :start-prismatic-calib arm)
     (let ((time-count 1))
-      (while (and (send *ri* :prismatic-calibratingp arm)
+      (while (and (send (send self :get-robot-interface) :prismatic-calibratingp arm)
                   (> (* timeout 10) time-count))
         (unix::usleep (* 100 1000))
         (incf time-count))
-      (if (send *ri* :prismatic-calibratingp arm) nil t)))
+      (if (send (send self :get-robot-interface) :prismatic-calibratingp arm) nil t)))
   (:recognize-object (arm &key (trial-times 10))
     (let (is-recognized recognition-count label-names)
       (setq trial-fail-count- 0)
@@ -72,12 +72,12 @@
             (ros::get-param (format nil "/~a_hand_camera/label_names"
                                     (arm2str arm))))
       (send self :set-target-location arm :tote)
-      (send *ri* :move-hand arm
-            (send *baxter* :hand-grasp-pre-pose arm :opposed) 1000 :wait nil)
+      (send (send self :get-robot-interface) :move-hand arm
+            (send (send self :get-robot) :hand-grasp-pre-pose arm :opposed) 1000 :wait nil)
       (ros::ros-info "[main] Recognizing objects in tote")
       (unless (> start-picking-fail-count- 0)
         (send self :move-arm-body->tote-overlook-pose arm)
-        (send *ri* :wait-interpolation))
+        (send (send self :get-robot-interface) :wait-interpolation))
       (setq recognition-count 1)
       (let ((stamp (ros::time-now)) target-index)
         (while (null (or (> recognition-count trial-times) is-recognized))
@@ -104,11 +104,11 @@
     (send self :add-postponed-object arm target-obj- :tote)
     (setq start-picking-fail-count- 0)
     (ros::ros-info "[main] arm: ~a, failed to recognize object in tote" arm)
-    (send *ri* :angle-vector-sequence-raw
-          (list (send *baxter* :fold-to-keep-object arm)
-                (send *baxter* :arc-reset-pose arm))
-          :fast (send *ri* :get-arm-controller arm) 0 :scale 3.0)
-    (send *ri* :wait-interpolation))
+    (send (send self :get-robot-interface) :angle-vector-sequence-raw
+          (list (send (send self :get-robot) :fold-to-keep-object arm)
+                (send (send self :get-robot) :arc-reset-pose arm))
+          :fast (send (send self :get-robot-interface) :get-arm-controller arm) 0 :scale 3.0)
+    (send (send self :get-robot-interface) :wait-interpolation))
   (:check-recognize-fail-count (arm &key (count-limit 2))
     (incf recognize-fail-count-)
     (ros::ros-info "[main] arm: ~a, recognize fail count: ~a" arm recognize-fail-count-)
@@ -143,7 +143,7 @@
       start-picking-failp))
   (:change-grasp-style (arm)
     (incf trial-fail-count-)
-    (send *ri* :stop-grasp arm)
+    (send (send self :get-robot-interface) :stop-grasp arm)
     (let (next-style)
       ;; try another grasp style
       (setq next-style (send self :get-grasp-style arm target-obj- (+ trial-fail-count- 1)))
@@ -158,7 +158,7 @@
           nil))))
   (:pick-object
     (arm &key (use-scale t) (move-head t) (avoid-tote t))
-    (send *ri* :speak
+    (send (send self :get-robot-interface) :speak
           (format nil "~a arm is picking ~a." (arm2str arm) (underscore-to-space target-obj-)))
     (let (pick-result graspingp)
       (setq recognize-fail-count- 0)
@@ -167,7 +167,8 @@
         (send self :set-movable-region-for-tote arm :offset (list 50 50 0))
         (send self :set-movable-region-for-tote arm :offset (list 50 50 0)))
       (when use-scale (send self :reset-scale arm))
-      (when move-head (send *baxter* :head_pan :joint-angle (if (eq arm :larm) -70 70)))
+      (when move-head
+        (send (send self :get-robot) :head_pan :joint-angle (if (eq arm :larm) -70 70)))
       (setq pick-result
             (send self :pick-object-in-tote arm
                   :n-trial (if (eq grasp-style- :suction) 2 1)
@@ -175,10 +176,11 @@
                   :do-stop-grasp nil
                   :grasp-style grasp-style-))
       (when moveit-p- (send self :add-tote-scene arm))
-      (unless avoid-tote (return-from :pick-object (send *ri* :graspingp arm)))
+      (unless avoid-tote
+        (return-from :pick-object (send (send self :get-robot-interface) :graspingp arm)))
       ;; Don't trust pressure sensor
       ;; (unless (eq pick-result :ik-failed)
-      ;;   (setq graspingp (send *ri* :graspingp arm grasp-style-))
+      ;;   (setq graspingp (send (send self :get-robot-interface) :graspingp arm grasp-style-))
       ;;   (unless graspingp (return-from :pick-object nil))
       ;;   )
       (let (end-pos)
@@ -188,8 +190,10 @@
                   :offset #f(0 0 400)
                   :rpy (float-vector (if (eq arm :larm) -pi/2 pi/2) 0 0)
                   :rotation-axis t :use-gripper t)
-            (setq end-pos (send (send *baxter* arm :end-coords :copy-worldcoords) :worldpos))
-            (send *baxter* :rotate-wrist-ik arm
+            (setq end-pos
+                  (send (send (send self :get-robot) arm :end-coords :copy-worldcoords)
+                        :worldpos))
+            (send (send self :get-robot) :rotate-wrist-ik arm
                   (make-coords :pos end-pos
                                :rpy (float-vector (if (eq arm :larm) -pi/2 pi/2) 0 0))
                   :rotate-axis t))
@@ -198,19 +202,23 @@
                   :offset #f(0 0 400)
                   :rpy (float-vector (if (eq arm :larm) -pi/2 pi/2) 0 0)
                   :rotation-axis t :move-palm-end t)
-            (setq end-pos (send (send *baxter* arm :palm-endpoint :copy-worldcoords) :worldpos))
-            (send *baxter* :rotate-wrist-ik arm
+            (setq end-pos
+                  (send (send (send self :get-robot) arm :palm-endpoint :copy-worldcoords)
+                        :worldpos))
+            (send (send self :get-robot) :rotate-wrist-ik arm
                   (make-coords :pos end-pos
                                :rpy (float-vector (if (eq arm :larm) -pi/2 pi/2) 0 0))
                   :move-palm-end t
                   :rotate-axis t)))
-        (send *ri* :angle-vector-raw (send *baxter* :angle-vector) 3000
-              (send *ri* :get-arm-controller arm :gripper nil) 0)
-        (send *ri* :wait-interpolation))
+        (send (send self :get-robot-interface) :angle-vector-raw
+              (send (send self :get-robot) :angle-vector) 3000
+              (send (send self :get-robot-interface) :get-arm-controller arm :gripper nil) 0)
+        (send (send self :get-robot-interface) :wait-interpolation))
       (if (eq pick-result :ik-failed) (return-from :pick-object nil))
-      (unless use-scale (return-from :pick-object (send *ri* :graspingp arm)))
+      (unless use-scale
+        (return-from :pick-object (send (send self :get-robot-interface) :graspingp arm)))
       ;; Don't trust pressure sensor
-      ;; (setq graspingp (send *ri* :graspingp arm grasp-style-))
+      ;; (setq graspingp (send (send self :get-robot-interface) :graspingp arm grasp-style-))
       ;; (ros::ros-info "[main] arm: ~a graspingp: ~a" arm graspingp)
       ;; graspingp))
       (setq scale-candidates-
@@ -224,12 +232,13 @@
   (:return-from-pick-object (arm)
     (send self :add-postponed-object arm target-obj- :tote)
     (ros::ros-info "[main] arm: ~a return from pick-object to arc-reset-pose" arm)
-    (send *ri* :angle-vector-sequence-raw
-          (list (send *baxter* :avoid-shelf-pose arm (if (eq arm :larm) :d :f))
-                (send *baxter* :arc-reset-pose arm))
-          :fast (send *ri* :get-arm-controller arm :gripper (eq grasp-style- :suction))
+    (send (send self :get-robot-interface) :angle-vector-sequence-raw
+          (list (send (send self :get-robot) :avoid-shelf-pose arm (if (eq arm :larm) :d :f))
+                (send (send self :get-robot) :arc-reset-pose arm))
+          :fast (send (send self :get-robot-interface) :get-arm-controller arm
+                      :gripper (eq grasp-style- :suction))
           0 :scale 3.0)
-    (send *ri* :wait-interpolation)
+    (send (send self :get-robot-interface) :wait-interpolation)
     (if (eq grasp-style- :pinch)
       (send self :resolve-collision-between-fingers arm)))
   (:verify-object (arm)
@@ -291,72 +300,75 @@
       ;; (setq offset (send self :decide-tote-return-area arm))
       ;; (ros::ros-info "return object to tote: arm, ~A, offset ~A" (arm2str arm) offset)
       (if (eq grasp-style- :suction)
-        (send *ri* :angle-vector-raw
+        (send (send self :get-robot-interface) :angle-vector-raw
               (send self :ik->tote-center arm
                     :offset offset
                     :rotation-axis :z :use-gripper t)
-              :fast (send *ri* :get-arm-controller arm) 0 :scale 5.0)
-        (send *ri* :angle-vector-raw
+              :fast (send (send self :get-robot-interface) :get-arm-controller arm) 0 :scale 5.0)
+        (send (send self :get-robot-interface) :angle-vector-raw
               (send self :ik->tote-center arm
                     :offset offset
                     :rotation-axis :z :move-palm-end t)
-            :fast (send *ri* :get-arm-controller arm :gripper nil) 0 :scale 5.0)))
-    (send *ri* :wait-interpolation)
-    (send *ri* :stop-grasp arm)
+            :fast (send (send self :get-robot-interface) :get-arm-controller arm :gripper nil)
+            0 :scale 5.0)))
+    (send (send self :get-robot-interface) :wait-interpolation)
+    (send (send self :get-robot-interface) :stop-grasp arm)
     (when (eq grasp-style- :pinch)
-      (send *ri* :stop-grasp arm :pinch)
-      (send *baxter* :rotate-gripper arm 90 :relative nil))
+      (send (send self :get-robot-interface) :stop-grasp arm :pinch)
+      (send (send self :get-robot) :rotate-gripper arm 90 :relative nil))
     (send self :spin-off-by-wrist arm :times 3)
-    (send *ri* :wait-interpolation)
+    (send (send self :get-robot-interface) :wait-interpolation)
     (ros::ros-info "[main] ~a, return object in tote" arm)
-    (send *ri* :angle-vector-raw
-          (send *baxter* arm :move-end-pos #f(0 0 200) :world :rotation-axis :z)
-          :fast (send *ri* :get-arm-controller arm) 0 :scale 5.0)
-    (send *ri* :wait-interpolation)
+    (send (send self :get-robot-interface) :angle-vector-raw
+          (send (send self :get-robot) arm :move-end-pos #f(0 0 200) :world :rotation-axis :z)
+          :fast (send (send self :get-robot-interface) :get-arm-controller arm) 0 :scale 5.0)
+    (send (send self :get-robot-interface) :wait-interpolation)
     (when moveit-p- (send self :add-tote-scene arm))
-    (send self :arc-reset-pose arm 3000 (send *ri* :get-arm-controller arm) 0 :move-arm arm)
-    (send *ri* :wait-interpolation)
+    (send self :arc-reset-pose arm 3000
+          (send (send self :get-robot-interface) :get-arm-controller arm) 0 :move-arm arm)
+    (send (send self :get-robot-interface) :wait-interpolation)
     (if (eq grasp-style- :pinch)
       (send self :resolve-collision-between-fingers arm)))
   (:place-object (arm)
     (let (dropped place-av)
-      (send *ri* :speak
+      (send (send self :get-robot-interface) :speak
             (format nil "~a arm is placing ~a into bin ~a."
                     (arm2str arm) (underscore-to-space target-obj-) target-bin-))
       (ros::ros-info "[main] ~a, place object in bin ~a" arm target-bin-)
       (when moveit-p- (send self :add-object-in-hand-scene arm target-obj-))
-      (send *baxter* :head_pan :joint-angle (if (eq arm :larm) 70 -70))
+      (send (send self :get-robot) :head_pan :joint-angle (if (eq arm :larm) 70 -70))
       (if (eq grasp-style- :suction)
-        (send *ri* :angle-vector
+        (send (send self :get-robot-interface) :angle-vector
               (send self :ik->bin-center arm target-bin-
                     :offset (v+ #f(0 0 300)
                                 (send self :decide-bin-place-area arm target-bin- grasp-style-))
                     :rotation-axis :z :use-gripper t)
-              4000 (send *ri* :get-arm-controller arm :head t) 0
-              :move-arm arm)
-        (send *ri* :angle-vector
+              4000 (send (send self :get-robot-interface) :get-arm-controller arm :head t)
+              0 :move-arm arm)
+        (send (send self :get-robot-interface) :angle-vector
               (send self :ik->bin-center arm target-bin-
                     :offset (v+ #f(0 0 300)
                                 (send self :decide-bin-place-area arm target-bin- grasp-style-))
                     :rotation-axis nil :move-palm-end t)
-              4000 (send *ri* :get-arm-controller arm :gripper nil :head t) 0
-              :move-arm arm))
-      (send *ri* :wait-interpolation)
-      (setq dropped (not (send *ri* :graspingp arm grasp-style-)))
+              4000 (send (send self :get-robot-interface)
+                         :get-arm-controller arm :gripper nil :head t)
+              0 :move-arm arm))
+      (send (send self :get-robot-interface) :wait-interpolation)
+      (setq dropped (not (send (send self :get-robot-interface) :graspingp arm grasp-style-)))
       (when moveit-p- (send self :delete-object-in-hand-scene arm))
       (if dropped
         (progn
-          (send *ri* :speak
+          (send (send self :get-robot-interface) :speak
                 (format nil "~a arm dropped ~a to somewhere."
                         (arm2str arm) (underscore-to-space target-obj-)))
           (ros::ros-error "[main] arm ~a: dropped object" arm)
-          (send *ri* :stop-grasp arm)
+          (send (send self :get-robot-interface) :stop-grasp arm)
           (when (eq grasp-style- :pinch)
-            (send *ri* :stop-grasp arm :pinch)
-            (send *baxter* :rotate-gripper arm 90 :relative nil))
+            (send (send self :get-robot-interface) :stop-grasp arm :pinch)
+            (send (send self :get-robot) :rotate-gripper arm 90 :relative nil))
           ;; we assume object is dropped, but it can be just a mis-detection of grasp
           (send self :spin-off-by-wrist arm :times 3)
-          (send *ri* :wait-interpolation)
+          (send (send self :get-robot-interface) :wait-interpolation)
           (send self :add-postponed-object arm target-obj- :tote))
         (progn
           (send self :update-json target-obj- :src :tote :dst (cons :bin target-bin-))
@@ -364,39 +376,42 @@
           (ros::ros-info-green "[main] arm ~a: place object ~a in bin ~a" arm target-obj- target-bin-)
           (when moveit-p- (send self :delete-bin-scene target-bin-))
           (if (eq grasp-style- :suction)
-            (send *ri* :angle-vector-raw
-                  (send *baxter* arm :move-end-pos #f(0 0 -300) :world
+            (send (send self :get-robot-interface) :angle-vector-raw
+                  (send (send self :get-robot) arm :move-end-pos #f(0 0 -300) :world
                         :rotation-axis :z
                         :use-gripper t)
-                  2000 (send *ri* :get-arm-controller arm) 0)
+                  2000 (send (send self :get-robot-interface) :get-arm-controller arm) 0)
             (progn
               (setq place-av
-                    (send *baxter* arm :move-end-pos #f(0 0 -250) :world :rotation-axis nil))
+                    (send (send self :get-robot) arm :move-end-pos #f(0 0 -250)
+                          :world :rotation-axis nil))
               (if place-av
-                (send *ri* :angle-vector-raw place-av 2000 (send *ri* :get-arm-controller arm) 0))))
-          (send *ri* :wait-interpolation)
-          (send *ri* :stop-grasp arm) ;; release object
+                (send (send self :get-robot-interface) :angle-vector-raw place-av 2000
+                      (send (send self :get-robot-interface) :get-arm-controller arm) 0))))
+          (send (send self :get-robot-interface) :wait-interpolation)
+          (send (send self :get-robot-interface) :stop-grasp arm) ;; release object
           (when (eq grasp-style- :pinch)
-            (send *ri* :stop-grasp arm :pinch)
-            (send *baxter* :rotate-gripper arm 90 :relative nil)) ;; release object
+            (send (send self :get-robot-interface) :stop-grasp arm :pinch)
+            (send (send self :get-robot) :rotate-gripper arm 90 :relative nil)) ;; release object
           (send self :spin-off-by-wrist arm :times 5)
-          (send *ri* :wait-interpolation)
+          (send (send self :get-robot-interface) :wait-interpolation)
           (if (eq grasp-style- :suction)
-            (send *ri* :angle-vector-raw
-                  (send *baxter* arm :move-end-pos #f(0 0 300) :world
+            (send (send self :get-robot-interface) :angle-vector-raw
+                  (send (send self :get-robot) arm :move-end-pos #f(0 0 300) :world
                         :rotation-axis :z
                         :use-gripper t)
-                  2000 (send *ri* :get-arm-controller arm) 0)
+                  2000 (send (send self :get-robot-interface) :get-arm-controller arm) 0)
             (if place-av
-                (send *ri* :angle-vector-raw
-                      (send *baxter* arm :move-end-pos #f(0 0 250) :world
+                (send (send self :get-robot-interface) :angle-vector-raw
+                      (send (send self :get-robot) arm :move-end-pos #f(0 0 250) :world
                             :rotation-axis nil)
-                      2000 (send *ri* :get-arm-controller arm) 0)))
-          (send *ri* :wait-interpolation)
+                      2000 (send (send self :get-robot-interface) :get-arm-controller arm) 0)))
+          (send (send self :get-robot-interface) :wait-interpolation)
           (when moveit-p- (send self :add-bin-scene target-bin-))))))
   (:return-from-place-object (arm)
-    (send self :arc-reset-pose arm 3000 (send *ri* :get-arm-controller arm) 0 :move-arm arm)
-    (send *ri* :wait-interpolation)
+    (send self :arc-reset-pose arm 3000
+          (send (send self :get-robot-interface) :get-arm-controller arm) 0 :move-arm arm)
+    (send (send self :get-robot-interface) :wait-interpolation)
     (if (eq grasp-style- :pinch)
       (send self :resolve-collision-between-fingers arm))
     (setq grasp-style- nil)))
@@ -416,6 +431,8 @@
     (unless (boundp '*co*)
       (setq *co* (when moveit (instance collision-object-publisher :init))))
     (unless (boundp '*ti*)
-      (setq *ti* (instance jsk_arc2017_baxter::stow-interface :init :moveit moveit)))
-    (send *baxter* :angle-vector (send *ri* :state :potentio-vector))
-    (send *ri* :calib-grasp :arms)))
+      (setq *ti* (instance jsk_arc2017_baxter::stow-interface :init :moveit moveit))
+      (send *ti* :set-robot-interface *ri*))
+    (send (send *ti* :get-robot) :angle-vector
+          (send (send *ti* :get-robot-interface) :state :potentio-vector))
+    (send (send *ti* :get-robot-interface) :calib-grasp :arms)))
