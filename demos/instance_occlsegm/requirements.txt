@@ -13,7 +13,7 @@ imgaug>=0.2.7
 labelme>=2.9,<5.0.0
 matplotlib
 numpy
-opencv-python==4.2.0.32
+opencv-python==4.8.1.78
 pathlib2
 Pillow
 protobuf==3.17.3
