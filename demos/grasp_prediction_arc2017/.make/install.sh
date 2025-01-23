@@ -13,12 +13,12 @@ set -e
 echo_bold "==> Installing Anaconda"
 if [ "$PYTHONVERSION" = "3" ]; then
   if [ ! -e $ROOT/.anaconda3 ]; then
-    curl -L https://github.com/wkentaro/dotfiles/raw/master/local/bin/install_anaconda3.sh | bash -s $ROOT
+    curl -L https://github.com/wkentaro/dotfiles/raw/f5151644cdb8a0503e8d1d33ad40ca5a7c73b14b/local/bin/install_anaconda3.sh | bash -s $ROOT
   fi
   ln -fs $ROOT/.anaconda3 $ROOT/.anaconda
 else
   if [ ! -e $ROOT/.anaconda2 ]; then
-    curl -L https://github.com/wkentaro/dotfiles/raw/master/local/bin/install_anaconda2.sh | bash -s $ROOT
+    curl -L https://github.com/wkentaro/dotfiles/raw/f5151644cdb8a0503e8d1d33ad40ca5a7c73b14b/local/bin/install_anaconda2.sh | bash -s $ROOT
   fi
   ln -fs $ROOT/.anaconda2 $ROOT/.anaconda
 fi
