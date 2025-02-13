@@ -57,10 +57,17 @@ jobs:
         run: |
           set -x
           export USER=$(whoami)
-          sudo mkdir -p /__w/
-          sudo chmod 777 -R /__w/
-          sudo chown -R $USER $HOME
-          git config --global --add safe.directory $GITHUB_WORKSPACE || echo "OK" # Show 'could not lock config file /github/home/.gitconfig: Permission denied', but it is ok
+          if [ "${{ matrix.CONTAINER }}" = "jskrobotics/ros-ubuntu:14.04" ]; then
+             git config --global --add safe.directory $GITHUB_WORKSPACE || echo "OK" # Show 'could not lock config file /github/home/.gitconfig: Permission denied', but it is ok
+             sudo mkdir -p /__w/
+             sudo chmod 777 -R /__w/
+             sudo chown -R $USER $HOME
+             # sudo mkdir -p /home/runner/work/_temp/_github_workflow/
+             # sudo chown -R $USER $HOME /home/runner/work/_temp/_github_workflow/
+             # ls -al /home/runner/work/_temp/_github_workflow/
+          else
+             git config --global --add safe.directory $GITHUB_WORKSPACE
+          fi
       - name: Try to replace `node` with an glibc 2.17
         shell: bash
         run: |
@@ -90,10 +97,6 @@ jobs:
       #       ~/apt-cacher-ng
       #       ~/.ros/data
       #     key: ${{ github.workflow }}
-      - name: work around permission issue again
-        run: |
-          set -x
-          grep path $GITHUB_WORKSPACE/.gitmodules | sed 's/.*=//' | xargs -n 1 -I '{}' git config --global --add safe.directory $GITHUB_WORKSPACE/'{}'
       - name: Run jsk_travis
         uses: jsk-ros-pkg/jsk_travis@master
         with:
