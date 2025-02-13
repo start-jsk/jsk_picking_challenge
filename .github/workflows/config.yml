@@ -45,7 +45,10 @@ jobs:
             CATKIN_TOOLS_CONFIG_OPTIONS: "--blacklist imagesift jsk_recognition_msgs jsk_perception jsk_pcl_ros_utils jsk_pcl_ros resized_image_transport checkerboard_detector fetcheus naoqieus jsk_fetch_startup jsk_nao_startup roseus_remote jsk_robot_startup jsk_robot_utils jsk_pr2_calibration pr2_base_trajectory_action jsk_baxter_web peppereus naoeus jsk_baxter_desktop jsk_pepper_startup jsk_pr2_startup jsk_pr2_desktop"
             TEST_PKGS: "jsk_apc2015_common jsk_apc2016_common jsk_arc2017_common jsk_2015_05_baxter_apc jsk_2016_01_baxter_apc jsk_arc2017_baxter sphand_driver baxtergv6_apc2016"
 
-    container: ${{ matrix.CONTAINER }}
+    container:
+      image: ${{ matrix.CONTAINER }}
+      volumes:
+        - /tmp/node20:/__e/node20
 
     steps:
       - name: Install latest git (use sudo for ros-ubuntu, remove sudo for ubuntu container), checkout@v2 uses REST API for git<2.18, which removes .git folder and does not checkout .travis submodules
@@ -58,6 +61,20 @@ jobs:
           sudo chmod 777 -R /__w/
           sudo chown -R $USER $HOME
           git config --global --add safe.directory $GITHUB_WORKSPACE || echo "OK" # Show 'could not lock config file /github/home/.gitconfig: Permission denied', but it is ok
+      - name: Try to replace `node` with an glibc 2.17
+        shell: bash
+        run: |
+          if [ "${{ matrix.CONTAINER }}" = "jskrobotics/ros-ubuntu:14.04" ]; then
+             export USER=$(whoami)
+             sudo chmod 777 -R /__e/node20
+             sudo chown -R $USER /__e/node20
+          fi
+          ls -lar /__e/node20 &&
+          sudo apt-get install -y curl &&
+          curl -Lo /tmp/node.tar.gz https://unofficial-builds.nodejs.org/download/release/v20.17.0/node-v20.17.0-linux-x64-glibc-217.tar.gz &&
+          cd /__e/node20 &&
+          tar -x --strip-components=1 -f /tmp/node.tar.gz &&
+          ls -lar /__e/node20/bin/
       - name: Checkout
         uses: actions/checkout@v3.0.2
         with:
